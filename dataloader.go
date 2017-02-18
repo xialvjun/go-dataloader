@@ -1,4 +1,4 @@
-package goloader
+package dataloader
 
 import (
 	"fmt"
