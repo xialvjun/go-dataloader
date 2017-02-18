@@ -1,4 +1,4 @@
-package dataloader
+package main
 
 import (
 	"fmt"
@@ -15,19 +15,21 @@ var data = map[string]string{
 }
 
 func main() {
-	fmt.Print(123)
+	fmt.Println(1234)
 	for _, request := range requests {
 		wg := sync.WaitGroup{}
 		loader := NewDataloader(WhereIn)
 		for _, routine := range request {
 			wg.Add(1)
 			loader.rwmutex.RLock()
+			a := routine
 			go func() {
-				routine(loader)
+				a(loader)
 				loader.rwmutex.RUnlock()
 				wg.Done()
 			}()
 		}
+		go z(loader)
 		wg.Wait()
 	}
 }
@@ -62,52 +64,73 @@ func NewDataloader(fn func([]string) []interface{}) *Loader {
 
 func (loader *Loader) Load(id string) chan interface{} {
 	loader.rwmutex.RUnlock()
+	loader.mutex.Lock()
 	channel := make(chan interface{}, 1)
 	cache, ok := loader.caches[id]
 	// value, ok := loader.caches[id].value
-	if ok && cache.value != nil {
-		// 如果不给 channel 缓存，还得新创建一个 goroutine，在里面给 channel 添值，不然没法返回 channel
-		channel <- cache.value
+	if ok {
+		if cache.value != nil {
+			// 如果不给 channel 缓存，还得新创建一个 goroutine，在里面给 channel 添值，不然没法返回 channel
+			channel <- cache.value
+			loader.mutex.Unlock()
+			loader.rwmutex.RLock()
+			return channel
+		}
+		cache.chans = append(cache.chans, channel)
+		loader.mutex.Unlock()
 		loader.rwmutex.RLock()
 		return channel
 	}
-	cacheChans := make([]chan interface{}, 2)
+	cacheChans := make([]chan interface{}, 0)
 	cacheChans = append(cacheChans, channel)
 	loader.caches[id] = cacheStruct{
 		chans: cacheChans,
 	}
+	loader.mutex.Unlock()
 	loader.rwmutex.RLock()
 	return channel
 }
 
 func y1(loader *Loader) {
-	fmt.Println("something")
+	fmt.Println("something y1")
 	value := (<-loader.Load("1")).(string)
-	fmt.Println(value)
-	value2 := (<-loader.Load("2")).(string)
-	fmt.Println(value2)
+	fmt.Println("1" + value)
+	// value2 := (<-loader.Load("2")).(string)
+	// fmt.Println("2" + value2)
 }
 
 func y2(loader *Loader) {
-	fmt.Println("something")
+	fmt.Println("something y2")
 	value := (<-loader.Load("2")).(string)
-	fmt.Println(value)
+	fmt.Println("2" + value)
 }
 
 func y3(loader *Loader) {
-	fmt.Println("something")
+	fmt.Println("something y3")
 }
 
 func z(loader *Loader) {
 	for {
 		loader.rwmutex.Lock()
-		ids := make([]string, 10)
+		loader.mutex.Lock()
+		ids := make([]string, 0)
+		// fmt.Println(len(ids))
+		// fmt.Println(loader.caches)
 		for id, cache := range loader.caches {
+			// fmt.Println(len(cache.chans))
 			if len(cache.chans) > 0 {
 				ids = append(ids, id)
 			}
 		}
-		values := WhereIn(ids)
+		if len(ids) == 0 {
+			loader.mutex.Unlock()
+			loader.rwmutex.Unlock()
+			break
+		}
+		// fmt.Println(ids)
+		// fmt.Println(len(ids))
+		values := loader.fn(ids)
+		// fmt.Println(values)
 		for index, id := range ids {
 			cache := loader.caches[id]
 			cache.value = values[index]
@@ -116,5 +139,7 @@ func z(loader *Loader) {
 			}
 			cache.chans = cache.chans[:0]
 		}
+		loader.mutex.Unlock()
+		loader.rwmutex.Unlock()
 	}
 }
