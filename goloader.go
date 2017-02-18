@@ -21,8 +21,10 @@ func main() {
 		loader := NewDataloader(WhereIn)
 		for _, routine := range request {
 			wg.Add(1)
+			loader.rwmutex.RLock()
 			go func() {
 				routine(loader)
+				loader.rwmutex.RUnlock()
 				wg.Done()
 			}()
 		}
@@ -39,30 +41,42 @@ func WhereIn(ids []string) []interface{} {
 	return values
 }
 
+type cacheStruct struct {
+	value interface{}
+	chans []chan interface{}
+}
+
 type Loader struct {
-	cache    map[string]interface{}
-	channels map[string][]chan interface{}
-	fn       func([]string) []interface{}
+	rwmutex sync.RWMutex
+	mutex   sync.Mutex
+	caches  map[string]cacheStruct
+	fn      func([]string) []interface{}
 }
 
 func NewDataloader(fn func([]string) []interface{}) *Loader {
 	return &Loader{
-		cache:    make(map[string]interface{}),
-		channels: make(map[string][]chan interface{}),
-		fn:       fn,
+		caches: make(map[string]cacheStruct),
+		fn:     fn,
 	}
 }
 
 func (loader *Loader) Load(id string) chan interface{} {
+	loader.rwmutex.RUnlock()
 	channel := make(chan interface{}, 1)
-	value, ok := loader.cache[id]
-	if ok {
+	cache, ok := loader.caches[id]
+	// value, ok := loader.caches[id].value
+	if ok && cache.value != nil {
 		// 如果不给 channel 缓存，还得新创建一个 goroutine，在里面给 channel 添值，不然没法返回 channel
-		channel <- value
+		channel <- cache.value
+		loader.rwmutex.RLock()
 		return channel
 	}
-	loader.channels[id] = make([]chan interface{}, 2)
-	loader.channels[id] = append(loader.channels[id], channel)
+	cacheChans := make([]chan interface{}, 2)
+	cacheChans = append(cacheChans, channel)
+	loader.caches[id] = cacheStruct{
+		chans: cacheChans,
+	}
+	loader.rwmutex.RLock()
 	return channel
 }
 
@@ -84,6 +98,23 @@ func y3(loader *Loader) {
 	fmt.Println("something")
 }
 
-func z() {
-
+func z(loader *Loader) {
+	for {
+		loader.rwmutex.Lock()
+		ids := make([]string, 10)
+		for id, cache := range loader.caches {
+			if len(cache.chans) > 0 {
+				ids = append(ids, id)
+			}
+		}
+		values := WhereIn(ids)
+		for index, id := range ids {
+			cache := loader.caches[id]
+			cache.value = values[index]
+			for _, channel := range cache.chans {
+				channel <- values[index]
+			}
+			cache.chans = cache.chans[:0]
+		}
+	}
 }
