@@ -141,5 +141,7 @@ func z(loader *Loader) {
 		}
 		loader.mutex.Unlock()
 		loader.rwmutex.Unlock()
+		time.Sleep(10000)
+		// 加上上面那句 time.Sleep(10000) 就没问题，说明 lock 的思路和顺序是正确的，但是 for 循环可能导致 z 协程不退出
 	}
 }
