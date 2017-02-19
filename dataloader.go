@@ -113,6 +113,7 @@ func z(loader *Loader) {
 	for {
 		loader.rwmutex.Lock()
 		loader.mutex.Lock()
+		loader.rwmutex.Unlock()
 		ids := make([]string, 0)
 		// fmt.Println(len(ids))
 		// fmt.Println(loader.caches)
@@ -124,7 +125,7 @@ func z(loader *Loader) {
 		}
 		if len(ids) == 0 {
 			loader.mutex.Unlock()
-			loader.rwmutex.Unlock()
+			// loader.rwmutex.Unlock()
 			break
 		}
 		// fmt.Println(ids)
@@ -140,8 +141,8 @@ func z(loader *Loader) {
 			cache.chans = cache.chans[:0]
 		}
 		loader.mutex.Unlock()
-		loader.rwmutex.Unlock()
-		time.Sleep(10000)
+		// loader.rwmutex.Unlock()
+		// time.Sleep(10000)
 		// 加上上面那句 time.Sleep(10000) 就没问题，说明 lock 的思路和顺序是正确的，但是 for 循环可能导致 z 协程不退出
 	}
 }
